@@ -32,21 +32,60 @@ const MODEL_NAME = "llama-3.3-70b-versatile";
 const MAX_CODE_LENGTH = 20_000;
 const MAX_OUTPUT_TOKENS = 2048;
 
-const buildPrompt = (code: string, language?: string) => `\
-You are a senior software engineer and code reviewer.
-Analyze the following${language ? ` ${language}` : ""} code and provide:
+const buildPrompt = (sourceCode: string, programmingLanguage?: string) => `\
+You are a senior software engineer doing a professional code review.
+Analyze the following${programmingLanguage ? ` ${programmingLanguage}` : ""} code and provide a structured report.
 
-1. Code quality score (out of 10)
-2. Bugs or potential issues
-3. Performance improvements
-4. Best practices suggestions
-5. Refactored version of the code
+---
 
-Be concise but clear.
+### 1. Code Quality Score
+Score out of 10 with a single-sentence justification.
+
+### 2. Bugs or Potential Issues
+For each bug: line number (if identifiable), what is wrong, and why it matters.
+
+### 3. Performance Improvements
+For each issue: root cause and concrete fix.
+
+### 4. Best Practices Suggestions
+For each suggestion: which principle is violated and how to fix it.
+
+### 5. Refactored Version
+Rewrite the full code with all fixes applied. Follow these rules strictly:
+
+NAMING — Parameters and variables:
+- Use meaningful, intention-revealing parameter names: \`userId\` not \`id\`, \`firstName\` not \`x\`, \`targetElement\` not \`el\`
+- Never use single-letter names (\`x\`, \`y\`, \`i\` outside loops, \`e\` for errors) or vague names (\`data\`, \`temp\`, \`val\`, \`result\`, \`obj\`)
+- Name booleans as questions: \`isActive\`, \`hasPermission\`, \`canDelete\`, \`isLoading\`
+- Name functions as clear actions: \`calculateSum\`, \`fetchUserById\`, \`formatCurrency\`, \`sendWelcomeEmail\`
+- Name arrays in plural: \`userList\`, \`productIds\`, \`activeFilters\`
+
+JSDOC:
+- Add a short JSDoc comment above EVERY function — even small private ones
+- Format: /** Brief description of what the function does and returns */
+- Include @param tags only when the parameter name alone is not self-explanatory
+- Keep JSDoc to 1–3 lines maximum — no novels
+- Example:
+  /** Calculates the total price including tax for a given order. */
+  function calculateTotalPrice(orderAmount: number, taxRate: number): number
+
+RUNTIME CHECKS:
+- Do NOT add null checks if TypeScript types already guarantee correctness
+- Only add guards where a real runtime risk exists (external API responses, user input)
+
+COMMENTS:
+- Only comment when the WHY is not obvious from the code itself
+- One comment per logical block maximum — never per line
+- No noise comments like "renamed variable" or "using descriptive name"
+
+STYLE:
+- Write code a senior engineer would be proud of — clean, minimal, no over-engineering
+- Remove dead code, unused imports, and redundant logic
+- Prefer simple solutions over clever ones
 
 Code:
-\`\`\`${language ?? ""}
-${code}
+\`\`\`${programmingLanguage ?? ""}
+${sourceCode}
 \`\`\``;
 
 /* ─── Helpers ─── */
@@ -56,83 +95,87 @@ function getClient(): Groq {
   return new Groq({ apiKey });
 }
 
-function err(
+function buildErrorResponse(
   message: string,
-  code: string,
-  status: number
+  errorCode: string,
+  httpStatus: number
 ): NextResponse<ErrorResponse> {
-  return NextResponse.json({ success: false, error: message, code }, { status });
+  return NextResponse.json(
+    { success: false, error: message, code: errorCode },
+    { status: httpStatus }
+  );
 }
 
 /* ─── POST /api/review ─── */
 export async function POST(
-  req: NextRequest
+  request: NextRequest
 ): Promise<NextResponse<ReviewResponse | ErrorResponse>> {
-  // 1. Parse body
-  let body: ReviewRequestBody;
+  let requestBody: ReviewRequestBody;
   try {
-    body = await req.json();
+    requestBody = await request.json();
   } catch {
-    return err("Invalid JSON body.", "INVALID_JSON", 400);
+    return buildErrorResponse("Invalid JSON body.", "INVALID_JSON", 400);
   }
 
-  const { code, language, filename } = body;
+  const { code, language, filename } = requestBody;
 
   if (!code || typeof code !== "string" || !code.trim()) {
-    return err("Field `code` must be a non-empty string.", "MISSING_CODE", 400);
+    return buildErrorResponse(
+      "Field `code` must be a non-empty string.",
+      "MISSING_CODE",
+      400
+    );
   }
   if (code.length > MAX_CODE_LENGTH) {
-    return err(
+    return buildErrorResponse(
       `Code exceeds ${MAX_CODE_LENGTH} characters.`,
       "CODE_TOO_LONG",
       413
     );
   }
 
-  // 2. Init client
-  let client: Groq;
+  let groqClient: Groq;
   try {
-    client = getClient();
+    groqClient = getClient();
   } catch {
-    return err(
+    return buildErrorResponse(
       "AI service is not configured. Set GROQ_API_KEY in .env.local.",
       "SERVICE_UNAVAILABLE",
       503
     );
   }
 
-  // 3. Call Groq
-  const start = Date.now();
-  let rawText: string;
+  const startTime = Date.now();
+  let reviewText: string;
 
   try {
-    const result = await client.chat.completions.create({
+    const groqResponse = await groqClient.chat.completions.create({
       model: MODEL_NAME,
       messages: [
-        {
-          role: "user",
-          content: buildPrompt(code.trim(), language),
-        },
+        { role: "user", content: buildPrompt(code.trim(), language) },
       ],
       max_tokens: MAX_OUTPUT_TOKENS,
-      temperature: 0.3,
+      temperature: 0.2,
     });
 
-    rawText = result.choices[0]?.message?.content ?? "";
+    reviewText = groqResponse.choices[0]?.message?.content ?? "";
 
-    if (!rawText.trim()) {
-      return err("The AI returned an empty response.", "EMPTY_RESPONSE", 502);
+    if (!reviewText.trim()) {
+      return buildErrorResponse(
+        "The AI returned an empty response.",
+        "EMPTY_RESPONSE",
+        502
+      );
     }
-  } catch (e: unknown) {
-    console.error("[review] Groq error:", e);
-    const message =
-      process.env.NODE_ENV === "development" && e instanceof Error
-        ? e.message
+  } catch (error: unknown) {
+    console.error("[review] Groq error:", error);
+    const errorMessage =
+      process.env.NODE_ENV === "development" && error instanceof Error
+        ? error.message
         : "Error communicating with the AI service.";
-    return err(message, "AI_ERROR", 502);
+    return buildErrorResponse(errorMessage, "AI_ERROR", 502);
   }
 
-  // 4. Return
   return NextResponse.json({
     success: true,
     result: {
@@ -140,13 +183,17 @@ export async function POST(
       filename: filename ?? "untitled",
       language: language ?? "unknown",
       linesAnalysed: code.trim().split("\n").length,
-      durationMs: Date.now() - start,
-      raw: rawText,
+      durationMs: Date.now() - startTime,
+      raw: reviewText,
       createdAt: new Date().toISOString(),
     },
   });
 }
 
 export function GET(): NextResponse<ErrorResponse> {
-  return err("Method not allowed. Use POST.", "METHOD_NOT_ALLOWED", 405);
+  return buildErrorResponse(
+    "Method not allowed. Use POST.",
+    "METHOD_NOT_ALLOWED",
+    405
+  );
 }
