@@ -18,9 +18,9 @@ Détecte les bugs, vulnérabilités et problèmes de performance en moins de 2 s
 
 ### Desktop View
 <img src="screenshots/desktop.png" width="500px" alt="Desktop view" />
-<img src="screenshots/desktop_1.png" width="500px" alt="Desktop view" />
 <img src="screenshots/desktop_2.png" width="500px" alt="Desktop view" />
 <img src="screenshots/desktop_3.png" width="500px" alt="Desktop view" />
+<img src="screenshots/desktop_4.png" width="500px" alt="Desktop view" />
 
 ### Mobile View
 <img src="screenshots/mobile.png" width="250px" alt="Mobile view" />
