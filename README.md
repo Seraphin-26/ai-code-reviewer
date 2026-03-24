@@ -10,7 +10,7 @@ Détecte les bugs, vulnérabilités et problèmes de performance en moins de 2 s
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-38bdf8?style=flat-square&logo=tailwind-css)](https://tailwindcss.com)
 [![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B-orange?style=flat-square)](https://groq.com)
 
-[**Démo live**](https://ai-code-reviewer.vercel.app) · [**Rapport de bug**](https://github.com/ton-username/ai-code-reviewer/issues)
+[**Démo live**](https://ai-code-correction.vercel.app) · [**Rapport de bug**](https://github.com/Seraphin-26/ai-code-reviewer/issues)
 
 </div>
 
